@@ -1,11 +1,12 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
-
 #nullable disable
 
 namespace Ledger_and_Inventory_Service.Migrations
 {
+    
     /// <inheritdoc />
+    
     public partial class AddLedgerAccountsAndBalances : Migration
     {
         /// <inheritdoc />
