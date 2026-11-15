@@ -154,7 +154,7 @@ public class JournalEntriesService(AppDbContext db)
             var requestedFrom = from.Value;
 
             journalLines = journalLines.Where(
-                line => line.PostedAt > requestedFrom);
+                line => line.PostedAt >= requestedFrom);
         }
 
         return journalLines;

@@ -5,6 +5,7 @@ using Ledger_and_Inventory_Service.Enums;
 using Ledger_and_Inventory_Service.Services;
 using Microsoft.EntityFrameworkCore;
 using Testcontainers.PostgreSql;
+using System.Globalization;
 using Xunit;
 
 namespace Ledger.Tests;
@@ -84,6 +85,55 @@ public class JournalEntriesServiceTests : IAsyncLifetime
             item => item.EntryId == reversal.Id);
         Assert.Equal("REVERSAL", reversalItem.EntryType);
         Assert.False(reversalItem.IsReversed);
+    }
+    
+    [Fact]
+    public async Task From_filter_includes_lines_posted_exactly_at_from()
+    {
+        var issuance = NewAccount(AccountType.SYSTEM);
+        issuance.SystemCode = SystemAccountCode.CASH_ISSUANCE;
+        issuance.AllowNegative = true;
+        var source = NewAccount(AccountType.CUSTOMER);
+        var destination = NewAccount(AccountType.CUSTOMER);
+
+        await using (var setup = CreateContext())
+        {
+            setup.LedgerAccounts.AddRange(issuance, source, destination);
+            await setup.SaveChangesAsync();
+        }
+
+        var opening = Transfer(issuance.Id, source.Id, 100);
+        opening.EntryType = JournalEntryType.OPENING_BALANCE;
+        opening.ReferenceType = "MANUAL";
+        await PostAsync(opening);
+
+        var transfer = Transfer(source.Id, destination.Id, 30);
+        await PostAsync(transfer);
+
+        // The exact stored time of the debit line on the source account
+        DateTimeOffset postedAt;
+        await using (var readContext = CreateContext())
+        {
+            postedAt = await readContext.JournalLines
+                .AsNoTracking()
+                .Where(line => line.EntryId == transfer.Id
+                               && line.AccountId == source.Id)
+                .Select(line => line.PostedAt)
+                .SingleAsync();
+        }
+
+        var from = postedAt.UtcDateTime.ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'",
+            CultureInfo.InvariantCulture);
+
+        await using var context = CreateContext();
+        var result = await new JournalEntriesService(context).GetAsync(
+            source.Id,
+            new JournalEntriesQuery(Direction: "DEBIT", From: from));
+
+        // from is inclusive, so the line posted exactly at from must be returned
+        var item = Assert.Single(result.Items);
+        Assert.Equal(transfer.Id, item.EntryId);
     }
 
     private async Task PostAsync(JournalEntry entry)
